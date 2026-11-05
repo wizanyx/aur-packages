@@ -1,0 +1,76 @@
+name: Update AUR packages
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aur-publish
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkgname: pokeclicker-automation-bin
+            upstream: Farigh/pokeclicker-automation-desktop
+            asset: pokeclicker-desktop-with-scripts_{version}_amd64.deb
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check whether this push touched the package
+        id: changed
+        if: github.event_name == 'push'
+        run: |
+          before='${{ github.event.before }}'
+          if [[ "$before" =~ ^0+$ ]] || ! git cat-file -e "$before" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$before" '${{ github.sha }}' -- '${{ matrix.pkgname }}'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for new upstream release
+        id: bump
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: scripts/update-github-release.sh '${{ matrix.pkgname }}' '${{ matrix.upstream }}' '${{ matrix.asset }}'
+
+      - name: Publish to AUR
+        if: >-
+          steps.bump.outputs.updated == 'true'
+          || steps.changed.outputs.changed == 'true'
+          || github.event_name == 'workflow_dispatch'
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: ${{ matrix.pkgname }}
+          asset_dir: ${{ matrix.pkgname }}
+          commit_username: Anany Sachan
+          commit_email: ananysachan2005@gmail.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: ${{ steps.bump.outputs.updated == 'true' && format('bump version to {0}', steps.bump.outputs.version) || github.event.head_commit.message || 'Update from aur-packages' }}
+          test: true
+
+      - name: Commit version bump to GitHub
+        if: steps.bump.outputs.updated == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "${{ matrix.pkgname }}: bump version to ${{ steps.bump.outputs.version }}"
+          for attempt in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          exit 1
