@@ -23,6 +23,9 @@ jobs:
           - pkgname: pokeclicker-automation-bin
             upstream: Farigh/pokeclicker-automation-desktop
             asset: pokeclicker-desktop-with-scripts_{version}_amd64.deb
+          - pkgname: openmausbot-bin
+            upstream: milind-soni/OpenMausBot
+            asset: OpenMausBot-{version}-amd64.deb
 
     steps:
       - uses: actions/checkout@v7
